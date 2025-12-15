@@ -16,7 +16,7 @@ An advanced **Aspect-Based Sentiment Analysis (ABSA)** system with **Active Lear
 
 ## 🛠️ Tech Stack
 
-- **Backend**: FastAPI, Python 3.12
+- **Backend**: FastAPI,
 - **Frontend**: Streamlit
 - **NLP Engine**: Custom ABSA engine with transformer models
 - **Database**: SQLite
