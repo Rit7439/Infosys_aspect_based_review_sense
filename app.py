@@ -174,7 +174,7 @@ if 'role' not in st.session_state:
 if 'page' not in st.session_state:
     st.session_state.page = 'login'
 if 'login_mode' not in st.session_state:
-    st.session_state.login_mode = 'admin'  # 'admin' or 'user'
+    st.session_state.login_mode = 'user'  # 'user' or 'admin'
 
 # Helper functions
 def login_user(token, user_id, username, role):
@@ -309,7 +309,7 @@ if not st.session_state.token:
             st.info("Login with your admin credentials to access the admin dashboard")
             
             with st.form("admin_login_form"):
-                admin_username = st.text_input("Admin Username", placeholder="Enter admin username")
+                admin_username = st.text_input("Admin Username / Email / ID", placeholder="Enter admin details")
                 admin_password = st.text_input("Admin Password", type="password", placeholder="Enter admin password")
                 admin_submit = st.form_submit_button("Login as Admin", use_container_width=True)
                 
@@ -331,7 +331,7 @@ if not st.session_state.token:
             st.info("Login with your user credentials to use the sentiment analysis model")
             
             with st.form("user_login_form"):
-                user_username = st.text_input("Username", placeholder="Enter your username")
+                user_username = st.text_input("Username / Email / ID", placeholder="Enter your details")
                 user_password = st.text_input("Password", type="password", placeholder="Enter your password")
                 user_submit = st.form_submit_button("Login as User", use_container_width=True)
                 
@@ -1570,7 +1570,7 @@ elif st.session_state.role == 'user':
         st.markdown("---")
         
         # Tabs for different sections
-        tab1, tab2, tab3, tab4 = st.tabs(["🔍 Uncertain Samples", "📥 Upload Train Set", "📥 Download Corrections", "📊 Model Stats"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔍 Uncertain Samples", "📥 Upload Train Set", "📥 Download Corrections", "📊 Model Stats", "⚙️ Retrain Model"])
         
         with tab1:
             st.markdown("### Review Predictions with Low Confidence (<50%)")
@@ -1806,6 +1806,44 @@ elif st.session_state.role == 'user':
                     st.error("Failed to fetch model stats.")
             except Exception as e:
                 st.error(f"Error: {e}")
+
+        with tab5:
+            st.markdown("### ⚙️ Manual Model Retraining")
+            st.info("Force the model to retrain using all available corrections in the database.")
+            
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.markdown("""
+                Click the button below to trigger the retraining process manually. 
+                This will use theTF-IDF + Logistic Regression pipeline to update our sentiment predictions 
+                based on your manual feedback.
+                """)
+            
+            with col2:
+                if st.button("🚀 Force Retrain Now", use_container_width=True, type="primary"):
+                    with st.spinner("Retraining in progress..."):
+                        try:
+                            response = requests.post(
+                                f"{API_URL}/active-learning/retrain",
+                                headers=get_headers()
+                            )
+                            
+                            if response.status_code == 200:
+                                data = response.json()
+                                if data.get('status') == 'success':
+                                    st.success(f"✅ {data.get('message')}")
+                                    st.balloons()
+                                else:
+                                    st.warning(f"⚠️ {data.get('message')}")
+                            else:
+                                st.error(f"❌ Retraining failed: {response.json().get('detail')}")
+                        except Exception as e:
+                            st.error(f"❌ Retraining error: {e}")
+            
+            st.markdown("---")
+            st.markdown("#### Retraining History")
+            # We could fetch this from the models table if exposed
+            st.write("The system automatically retrains after every 3 new corrections, but you can always force an update here.")
     
     # PROFILE PAGE
     elif st.session_state.page == 'profile':

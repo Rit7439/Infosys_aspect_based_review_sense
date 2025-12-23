@@ -302,8 +302,11 @@ async def login(user: UserLogin):
         conn = get_db()
         cursor = conn.cursor()
         
-        cursor.execute("SELECT id, username, password_hash, role FROM users WHERE username = ?", 
-                      (user.username,))
+        # Try to match by username, email, or numeric ID
+        cursor.execute(
+            "SELECT id, username, password_hash, role FROM users WHERE username = ? OR email = ? OR id = ?", 
+            (user.username, user.username, user.username)
+        )
         db_user = cursor.fetchone()
         
         if not db_user:
@@ -339,8 +342,11 @@ async def admin_login(user: UserLogin):
     cursor = conn.cursor()
     
     try:
-        cursor.execute("SELECT id, username, password_hash, role FROM users WHERE username = ? AND role = 'admin'", 
-                      (user.username,))
+        # Try to match by username, email, or numeric ID where role is admin
+        cursor.execute(
+            "SELECT id, username, password_hash, role FROM users WHERE (username = ? OR email = ? OR id = ?) AND role = 'admin'", 
+            (user.username, user.username, user.username)
+        )
         db_user = cursor.fetchone()
         
         if not db_user:
@@ -1019,18 +1025,17 @@ async def retrain_model(current_user: dict = Depends(get_current_user)):
     cursor = conn.cursor()
 
     try:
-        # 1. Fetch all corrections not yet used for training
+        # 1. Fetch all corrections currently in the database
         cursor.execute(
             """
             SELECT id, review_text, corrected_sentiment
             FROM active_learning_corrections
-            WHERE used_for_training = 0
             """
         )
         rows = cursor.fetchall()
         if not rows:
             return {
-                "message": "No new corrections available for training.",
+                "message": "No corrections available in the database for training. Please correct some reviews first.",
                 "corrections_used": 0,
                 "status": "no_data"
             }
@@ -1047,10 +1052,10 @@ async def retrain_model(current_user: dict = Depends(get_current_user)):
                 "corrections_used": 0,
                 "status": "not_enough_classes"
             }
-        if len(texts) < 5:
+        if len(texts) < 3:
             # Warn if the dataset is probably too small
             return {
-                "message": "Need at least 5 corrected samples to retrain reliably. Currently provided: " + str(len(texts)),
+                "message": "Need at least 3 corrected samples to retrain reliably. Currently provided: " + str(len(texts)),
                 "corrections_used": 0,
                 "status": "not_enough_samples"
             }
@@ -1079,6 +1084,10 @@ async def retrain_model(current_user: dict = Depends(get_current_user)):
             correction_ids,
         )
         conn.commit()
+
+        # 5. Reload the model in the global engine
+        engine = get_absa_engine()
+        engine.reload_model()
 
         return {
             "message": "Model retrained successfully and saved.",
@@ -1301,8 +1310,8 @@ async def save_corrections(corrections_data: dict, current_user: dict = Depends(
                 ''')
                 total_unused = cursor.fetchone()['count']
                 
-                # Retrain if we have at least 5 corrections
-                if total_unused >= 5:
+                # Retrain if we have at least 3 corrections
+                if total_unused >= 3:
                     import os
                     from pathlib import Path
                     import joblib
@@ -1352,6 +1361,9 @@ async def save_corrections(corrections_data: dict, current_user: dict = Depends(
                         
                         conn.commit()
                         
+                        # Reload engine model
+                        get_absa_engine().reload_model()
+                        
                         retrain_result = {
                             'retrained': True,
                             'corrections_used': len(correction_ids),
@@ -1365,7 +1377,7 @@ async def save_corrections(corrections_data: dict, current_user: dict = Depends(
                 else:
                     retrain_result = {
                         'retrained': False,
-                        'reason': f'Need at least 5 corrections (currently: {total_unused})'
+                        'reason': f'Need at least 3 corrections (currently: {total_unused})'
                     }
             except Exception as retrain_error:
                 print(f"Error during automatic retraining: {retrain_error}")

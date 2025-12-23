@@ -17,22 +17,20 @@ from typing import Optional
 
 class FastABSAEngine:
     def __init__(self):
-        # Disable ML model for now - using improved rule-based approach
-        # The ML model was giving biased predictions with same confidence scores
+        # Enable ML model usage - will use trained model if available
+        self.use_ml_model = True 
         self.model: Optional[object] = None
-        self.use_ml_model = False  # Flag to disable ML model usage
         
-        # Keep model path for future use if needed
         model_path = Path("models") / "trained_sentiment_model.pkl"
-        if model_path.exists() and self.use_ml_model:
+        if model_path.exists():
             try:
                 self.model = joblib.load(model_path)
-                print("✓ Loaded trained sentiment model")
+                print("Model loaded: trained sentiment model")
             except Exception as e:
                 print(f"Warning: Failed to load trained model: {e}. Using rule-based logic.")
                 self.model = None
         else:
-            print("✓ Using enhanced rule-based sentiment analysis")
+            print("Status: Using enhanced rule-based sentiment analysis (No trained model found)")
 
         # Load lightweight spaCy model
         try:
@@ -148,6 +146,21 @@ class FastABSAEngine:
             'seldom', 'little', 'few'
         }
 
+    def reload_model(self):
+        """Reload the ML model from disk"""
+        model_path = Path("models") / "trained_sentiment_model.pkl"
+        if model_path.exists():
+            try:
+                # Use a fresh load to ensure we get the latest
+                self.model = joblib.load(model_path)
+                self.use_ml_model = True
+                print("Status: Successfully reloaded trained model")
+                return True
+            except Exception as e:
+                print(f"Error reloading model: {e}")
+                return False
+        return False
+
     def extract_aspects(self, text):
         """Fast aspect extraction"""
         try:
@@ -242,7 +255,31 @@ class FastABSAEngine:
         return aspect_sentences
 
     def _analyze_sentiment_simple(self, text):
-        """Enhanced rule-based sentiment analysis with dynamic confidence scoring"""
+        """Enhanced sentiment analysis using ML model if available, else rule-based"""
+        text_lower = text.lower()
+        
+        # 0. USE TRAINED ML MODEL IF AVAILABLE
+        if self.use_ml_model and self.model:
+            try:
+                prediction = self.model.predict([text])[0]
+                probabilities = self.model.predict_proba([text])[0]
+                confidence = float(max(probabilities))
+                
+                # Rule-based override for extremely short text or explicit uncertainty
+                if len(text.split()) < 3 or self._calculate_uncertainty(text_lower) > 0.8:
+                    # In these cases, the ML model might be overconfident
+                    _, rule_conf = self._analyze_rule_based(text)
+                    confidence = min(confidence, rule_conf)
+                
+                return prediction, confidence
+            except Exception as e:
+                print(f"ML Prediction error: {e}")
+                # Fall back to rule-based
+        
+        return self._analyze_rule_based(text)
+
+    def _analyze_rule_based(self, text):
+        """Pure rule-based sentiment analysis with dynamic confidence scoring"""
         text_lower = text.lower()
         
         # Get text length for context
@@ -534,16 +571,16 @@ class FastABSAEngine:
     def test_review(self, text):
         """Test a review to see sentiment and confidence"""
         aspects = self.extract_aspects(text)
-        print(f"\n📝 Review: '{text}'")
-        print(f"🔍 Aspects: {aspects}")
+        print(f"\nReview: '{text}'")
+        print(f"Aspects: {aspects}")
         
         results = self.analyze_aspect_sentiment(text, aspects)
         
         for result in results:
-            print(f"\n🎯 Aspect: {result['aspect']}")
-            print(f"❤️  Sentiment: {result['sentiment']}")
-            print(f"📈 Confidence: {result['confidence']:.1%}")
-            print(f"🔑 Keywords: {result['keywords']}")
+            print(f"\nAspect: {result['aspect']}")
+            print(f"Sentiment: {result['sentiment']}")
+            print(f"Confidence: {result['confidence']:.1%}")
+            print(f"Keywords: {result['keywords']}")
         
         return results
 
@@ -556,9 +593,9 @@ if __name__ == "__main__":
     print("ABSA ENGINE - FINAL VERSION")
     print("=" * 60)
     print("Rules:")
-    print("1. Clear Positive/Negative → 70-95% confidence")
-    print("2. Clear Neutral → 70-90% confidence")
-    print("3. Uncertain/Mixed → 30-50% confidence")
+    print("1. Clear Positive/Negative -> 70-95% confidence")
+    print("2. Clear Neutral -> 70-90% confidence")
+    print("3. Uncertain/Mixed -> 30-50% confidence")
     print("=" * 60)
     
     test_reviews = [
@@ -601,20 +638,20 @@ if __name__ == "__main__":
             
             # Check if prediction matches expectation
             if result['sentiment'] == expected_sentiment:
-                print(f"  ✅ Sentiment CORRECT")
+                print(f"  [OK] Sentiment CORRECT")
             else:
-                print(f"  ❌ Sentiment WRONG")
+                print(f"  [FAIL] Sentiment WRONG")
             
             # Check confidence range
             if ">" in expected_confidence:
                 min_conf = float(expected_confidence.replace(">", "").replace("%", "")) / 100
                 if result['confidence'] >= min_conf:
-                    print(f"  ✅ Confidence CORRECT")
+                    print(f"  [OK] Confidence CORRECT")
                 else:
-                    print(f"  ❌ Confidence TOO LOW")
+                    print(f"  [FAIL] Confidence TOO LOW")
             elif "<" in expected_confidence:
                 max_conf = float(expected_confidence.replace("<", "").replace("%", "")) / 100
                 if result['confidence'] <= max_conf:
-                    print(f"  ✅ Confidence CORRECT")
+                    print(f"  [OK] Confidence CORRECT")
                 else:
-                    print(f"  ❌ Confidence TOO HIGH")
+                    print(f"  [FAIL] Confidence TOO HIGH")
